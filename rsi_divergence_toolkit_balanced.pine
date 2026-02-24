@@ -1,0 +1,88 @@
+//@version=6
+indicator("RSI Divergence Toolkit (Balanced)", shorttitle="RSI Div Toolkit", overlay=false, format=format.price, precision=2, max_lines_count=500, max_labels_count=500)
+
+// RSI Inputs
+rsiLength = input.int(14, "RSI Length")
+src       = input.source(close, "Source")
+tfHigher  = input.timeframe("D", "Higher Timeframe")   // One HTF only
+
+// Style Configuration
+labelPlacement = input.string("Balanced", "Divergence Label Placement", options=["Balanced", "Above Bar", "Below Bar"], group="Style")
+labelYOffset   = input.float(2.0, "Label Y Offset", step=0.5, minval=0.0, group="Style")
+
+// RSI Calculation
+change = ta.change(src)
+up     = ta.rma(math.max(change, 0), rsiLength)
+down   = ta.rma(-math.min(change, 0), rsiLength)
+rsi    = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+// Higher Timeframe RSI
+rsiHTF = request.security(syminfo.tickerid, tfHigher, rsi)
+
+// Plot RSI Lines (Only 2)
+plot(rsi, "RSI (Current TF)", color=color.purple, linewidth=2, trackprice=true, display=display.pane + display.status_line + display.data_window)
+plot(rsiHTF, "RSI (HTF)", color=color.orange, linewidth=1, style=plot.style_linebr, trackprice=true, display=display.pane + display.status_line + display.data_window)
+
+// Reference Levels (as plots so values are visible in pane/data window)
+obLevel = 70.0
+midLevel = 50.0
+osLevel = 30.0
+plot(obLevel, "Overbought (70)", color=color.red, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
+plot(midLevel, "Neutral (50)", color=color.gray, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
+plot(osLevel, "Oversold (30)", color=color.green, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
+
+// Helper label to make indicator name visible in pane
+plotchar(na, title="Indicator: RSI Divergence Toolkit (Balanced)", char="", location=location.top, display=display.status_line + display.data_window)
+
+// Divergence Logic (same as before)
+plFound   = not na(ta.pivotlow(rsi, 5, 5))
+phFound   = not na(ta.pivothigh(rsi, 5, 5))
+prevRsiPl = ta.valuewhen(plFound, rsi[5], 1)
+prevRsiPh = ta.valuewhen(phFound, rsi[5], 1)
+prevLow   = ta.valuewhen(plFound, low[5], 1)
+prevHigh  = ta.valuewhen(phFound, high[5], 1)
+
+bullCond       = plFound and low[5] < prevLow and rsi[5] > prevRsiPl
+bearCond       = phFound and high[5] > prevHigh and rsi[5] < prevRsiPh
+hiddenBullCond = plFound and low[5] > prevLow and rsi[5] < prevRsiPl
+hiddenBearCond = phFound and high[5] < prevHigh and rsi[5] > prevRsiPh
+
+labelY = labelPlacement == "Above Bar" ? rsi[5] + labelYOffset : labelPlacement == "Below Bar" ? rsi[5] - labelYOffset : rsi[5]
+labelStyleUp = labelPlacement == "Above Bar" ? label.style_label_down : label.style_label_up
+labelStyleDown = labelPlacement == "Below Bar" ? label.style_label_up : label.style_label_down
+
+// Plot Divergence Lines + Labels
+if bullCond
+    line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPl, color=color.green, width=2)
+    label.new(bar_index[5], labelY, text="B", style=labelPlacement == "Balanced" ? label.style_label_up : labelStyleUp, color=color.green, textcolor=color.white)
+
+if bearCond
+    line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPh, color=color.red, width=2)
+    label.new(bar_index[5], labelY, text="S", style=labelPlacement == "Balanced" ? label.style_label_down : labelStyleDown, color=color.red, textcolor=color.white)
+
+if hiddenBullCond
+    line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPl, color=color.teal, width=2, style=line.style_dotted)
+    label.new(bar_index[5], labelY, text="HB", style=labelPlacement == "Balanced" ? label.style_label_up : labelStyleUp, color=color.teal, textcolor=color.white)
+
+if hiddenBearCond
+    line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPh, color=color.orange, width=2, style=line.style_dotted)
+    label.new(bar_index[5], labelY, text="HS", style=labelPlacement == "Balanced" ? label.style_label_down : labelStyleDown, color=color.orange, textcolor=color.white)
+
+// === Alerts (Background Triggers) ===
+// Divergence Alerts
+alertcondition(bullCond,       title="Bull Div", message="Bullish Divergence Detected")
+alertcondition(bearCond,       title="Bear Div", message="Bearish Divergence Detected")
+alertcondition(hiddenBullCond, title="Hidden Bull", message="Hidden Bullish Divergence Detected")
+alertcondition(hiddenBearCond, title="Hidden Bear", message="Hidden Bearish Divergence Detected")
+
+// Current TF RSI Alerts
+alertcondition(rsi > 70, title="RSI Overbought (Current TF)", message="RSI Overbought on Current TF")
+alertcondition(rsi < 30, title="RSI Oversold (Current TF)", message="RSI Oversold on Current TF")
+
+// HTF RSI Alerts
+alertcondition(rsiHTF > 70, title="RSI Overbought (HTF)", message="RSI Overbought on Higher TF")
+alertcondition(rsiHTF < 30, title="RSI Oversold (HTF)", message="RSI Oversold on Higher TF")
+
+// Neutral Zone Alerts (Optional)
+alertcondition(ta.crossover(rsi, 50), title="RSI Cross Above 50", message="RSI Crossed Above Neutral Zone")
+alertcondition(ta.crossunder(rsi, 50), title="RSI Cross Below 50", message="RSI Crossed Below Neutral Zone")
