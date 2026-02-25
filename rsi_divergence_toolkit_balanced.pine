@@ -1,14 +1,10 @@
 //@version=6
-indicator("RSI Divergence Toolkit (Balanced)", shorttitle="RSI Div Toolkit", overlay=false, format=format.price, precision=2, max_lines_count=500, max_labels_count=500)
+indicator("RSI Divergence Toolkit (Balanced)", overlay=false, max_lines_count=500, max_labels_count=500)
 
 // RSI Inputs
 rsiLength = input.int(14, "RSI Length")
 src       = input.source(close, "Source")
 tfHigher  = input.timeframe("D", "Higher Timeframe")   // One HTF only
-
-// Style Configuration
-labelPlacement = input.string("Balanced", "Divergence Label Placement", options=["Balanced", "Above Bar", "Below Bar"], group="Style")
-labelYOffset   = input.float(2.0, "Label Y Offset", step=0.5, minval=0.0, group="Style")
 
 // RSI Calculation
 change = ta.change(src)
@@ -20,19 +16,13 @@ rsi    = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
 rsiHTF = request.security(syminfo.tickerid, tfHigher, rsi)
 
 // Plot RSI Lines (Only 2)
-plot(rsi, "RSI (Current TF)", color=color.purple, linewidth=2, trackprice=true, display=display.pane + display.status_line + display.data_window)
-plot(rsiHTF, "RSI (HTF)", color=color.orange, linewidth=1, style=plot.style_linebr, trackprice=true, display=display.pane + display.status_line + display.data_window)
+plot(rsi, "RSI (Current TF)", color=color.purple, linewidth=2)
+plot(rsiHTF, "RSI (HTF)", color=color.orange, linewidth=1, style=plot.style_linebr)
 
-// Reference Levels (as plots so values are visible in pane/data window)
-obLevel = 70.0
-midLevel = 50.0
-osLevel = 30.0
-plot(obLevel, "Overbought (70)", color=color.red, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
-plot(midLevel, "Neutral (50)", color=color.gray, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
-plot(osLevel, "Oversold (30)", color=color.green, linewidth=1, style=plot.style_line, display=display.pane + display.data_window)
-
-// Helper label to make indicator name visible in pane
-plotchar(na, title="Indicator: RSI Divergence Toolkit (Balanced)", char="", location=location.top, display=display.status_line + display.data_window)
+// Reference Levels
+hline(70, "Overbought", color=color.red, linestyle=hline.style_dotted)
+hline(50, "Neutral", color=color.gray, linestyle=hline.style_dashed)
+hline(30, "Oversold", color=color.green, linestyle=hline.style_dotted)
 
 // Divergence Logic (same as before)
 plFound   = not na(ta.pivotlow(rsi, 5, 5))
@@ -47,26 +37,22 @@ bearCond       = phFound and high[5] > prevHigh and rsi[5] < prevRsiPh
 hiddenBullCond = plFound and low[5] > prevLow and rsi[5] < prevRsiPl
 hiddenBearCond = phFound and high[5] < prevHigh and rsi[5] > prevRsiPh
 
-labelY = labelPlacement == "Above Bar" ? rsi[5] + labelYOffset : labelPlacement == "Below Bar" ? rsi[5] - labelYOffset : rsi[5]
-labelStyleUp = labelPlacement == "Above Bar" ? label.style_label_down : label.style_label_up
-labelStyleDown = labelPlacement == "Below Bar" ? label.style_label_up : label.style_label_down
-
 // Plot Divergence Lines + Labels
 if bullCond
     line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPl, color=color.green, width=2)
-    label.new(bar_index[5], labelY, text="B", style=labelPlacement == "Balanced" ? label.style_label_up : labelStyleUp, color=color.green, textcolor=color.white)
+    label.new(bar_index[5], rsi[5], text="B", style=label.style_label_up, color=color.green, textcolor=color.white)
 
 if bearCond
     line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPh, color=color.red, width=2)
-    label.new(bar_index[5], labelY, text="S", style=labelPlacement == "Balanced" ? label.style_label_down : labelStyleDown, color=color.red, textcolor=color.white)
+    label.new(bar_index[5], rsi[5], text="S", style=label.style_label_down, color=color.red, textcolor=color.white)
 
 if hiddenBullCond
     line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPl, color=color.teal, width=2, style=line.style_dotted)
-    label.new(bar_index[5], labelY, text="HB", style=labelPlacement == "Balanced" ? label.style_label_up : labelStyleUp, color=color.teal, textcolor=color.white)
+    label.new(bar_index[5], rsi[5], text="HB", style=label.style_label_up, color=color.teal, textcolor=color.white)
 
 if hiddenBearCond
     line.new(bar_index[5], rsi[5], bar_index[10], prevRsiPh, color=color.orange, width=2, style=line.style_dotted)
-    label.new(bar_index[5], labelY, text="HS", style=labelPlacement == "Balanced" ? label.style_label_down : labelStyleDown, color=color.orange, textcolor=color.white)
+    label.new(bar_index[5], rsi[5], text="HS", style=label.style_label_down, color=color.orange, textcolor=color.white)
 
 // === Alerts (Background Triggers) ===
 // Divergence Alerts
