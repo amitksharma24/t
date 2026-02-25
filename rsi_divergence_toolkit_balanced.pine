@@ -1,0 +1,232 @@
+//@version=6
+indicator("RSI Divergence Toolkit (Balanced)", overlay=false, max_lines_count=500, max_labels_count=500)
+
+// RSI Inputs
+rsiLength = input.int(14, "RSI Length")
+src       = input.source(close, "Source")
+tfHigher  = input.timeframe("D", "Higher Timeframe") // One HTF only
+
+// HTF Controls
+htfLookaheadMode = input.string("Off", "HTF Lookahead", options=["Off", "On"])
+htfGapsMode      = input.string("Off", "HTF Gaps", options=["Off", "On"])
+
+// Pivot Inputs
+pivotLeft  = input.int(5, "Pivot Left Bars", minval=1)
+pivotRight = input.int(5, "Pivot Right Bars", minval=1)
+
+// Noise Filters
+useNoiseFilter  = input.bool(true, "Use Noise Filters")
+minRsiSwing     = input.float(4.0, "Min RSI Swing", minval=0.0, step=0.1)
+minPriceSwingPc = input.float(0.5, "Min Price Swing %", minval=0.0, step=0.1)
+
+// Rich Trend Modes
+trendMode       = input.string("Midline", "Trend Mode", options=["Off", "Midline", "Slope", "EMA"])
+trendMidline    = input.float(50.0, "Trend Midline", minval=0.0, maxval=100.0, step=0.5)
+trendSlopeBars  = input.int(3, "Trend Slope Bars", minval=1)
+trendEmaLength  = input.int(9, "Trend EMA Length", minval=1)
+
+// Visual Controls
+showRegularDiv  = input.bool(true, "Show Regular Divergence")
+showHiddenDiv   = input.bool(true, "Show Hidden Divergence")
+showDivLines    = input.bool(true, "Show Divergence Lines")
+showDivLabels   = input.bool(true, "Show Divergence Labels")
+lineWidth       = input.int(2, "Divergence Line Width", minval=1, maxval=4)
+labelSizeMode   = input.string("Small", "Label Size", options=["Tiny", "Small", "Normal", "Large"])
+maxDrawnObjects = input.int(150, "Max Stored Lines/Labels", minval=20, maxval=500)
+
+// Alert Controls
+alertMode            = input.string("De-dup", "Alert Mode", options=["De-dup", "Raw"])
+alertsOnBarCloseOnly = input.bool(true, "Alerts on Bar Close Only")
+alertRegularDiv      = input.bool(true, "Alert: Regular Divergence")
+alertHiddenDiv       = input.bool(true, "Alert: Hidden Divergence")
+alertCurrentRsiZones = input.bool(true, "Alert: Current TF RSI Zones")
+alertHtfRsiZones     = input.bool(true, "Alert: HTF RSI Zones")
+alertNeutralCross    = input.bool(true, "Alert: RSI 50 Cross")
+
+// Preset Checkboxes (optional)
+presetScalping   = input.bool(false, "Preset: Scalping")
+presetIntraday   = input.bool(false, "Preset: Intraday")
+presetSwing      = input.bool(false, "Preset: Swing")
+presetPositional = input.bool(false, "Preset: Positional")
+
+presetCount = (presetScalping ? 1 : 0) + (presetIntraday ? 1 : 0) + (presetSwing ? 1 : 0) + (presetPositional ? 1 : 0)
+usePreset   = presetCount > 0
+
+// Effective settings (preset overrides manual inputs)
+effectiveRsiLength      = presetScalping ? 10 : presetIntraday ? 14 : presetSwing ? 14 : presetPositional ? 21 : rsiLength
+effectiveTfHigher       = presetScalping ? "60" : presetIntraday ? "240" : presetSwing ? "D" : presetPositional ? "W" : tfHigher
+effectivePivotLeft      = presetScalping ? 3 : presetIntraday ? 4 : presetSwing ? 5 : presetPositional ? 7 : pivotLeft
+effectivePivotRight     = presetScalping ? 3 : presetIntraday ? 4 : presetSwing ? 5 : presetPositional ? 7 : pivotRight
+effectiveUseNoiseFilter = usePreset ? true : useNoiseFilter
+effectiveMinRsiSwing    = presetScalping ? 3.0 : presetIntraday ? 4.5 : presetSwing ? 5.0 : presetPositional ? 6.0 : minRsiSwing
+effectiveMinPriceSwing  = presetScalping ? 0.3 : presetIntraday ? 0.6 : presetSwing ? 0.8 : presetPositional ? 1.2 : minPriceSwingPc
+effectiveTrendMode      = presetScalping ? "Slope" : presetIntraday ? "Midline" : presetSwing ? "EMA" : presetPositional ? "Midline" : trendMode
+effectiveTrendMidline   = trendMidline
+effectiveTrendSlopeBars = presetScalping ? 2 : presetIntraday ? 3 : presetSwing ? 3 : presetPositional ? 4 : trendSlopeBars
+effectiveTrendEmaLength = presetScalping ? 7 : presetIntraday ? 9 : presetSwing ? 14 : presetPositional ? 14 : trendEmaLength
+
+// RSI Calculation
+change = ta.change(src)
+up     = ta.rma(math.max(change, 0), effectiveRsiLength)
+down   = ta.rma(-math.min(change, 0), effectiveRsiLength)
+rsi    = down == 0 ? 100 : up == 0 ? 0 : 100 - (100 / (1 + up / down))
+
+// Higher Timeframe RSI
+htfLookahead = htfLookaheadMode == "On" ? barmerge.lookahead_on : barmerge.lookahead_off
+htfGaps      = htfGapsMode == "On" ? barmerge.gaps_on : barmerge.gaps_off
+rsiHTF       = request.security(syminfo.tickerid, effectiveTfHigher, rsi, gaps=htfGaps, lookahead=htfLookahead)
+
+// Plot RSI Lines
+plot(rsi, "RSI (Current TF)", color=color.purple, linewidth=2)
+plotchar(presetCount > 1 ? 1 : na, title="Preset Warning", char="⚠", location=location.top, color=color.yellow, size=size.tiny)
+plot(rsiHTF, "RSI (HTF)", color=color.orange, linewidth=1, style=plot.style_linebr)
+
+// Reference Levels
+hline(70, "Overbought", color=color.red, linestyle=hline.style_dotted)
+hline(50, "Neutral", color=color.gray, linestyle=hline.style_dashed)
+hline(30, "Oversold", color=color.green, linestyle=hline.style_dotted)
+
+// Divergence Core
+plFound = not na(ta.pivotlow(rsi, effectivePivotLeft, effectivePivotRight))
+phFound = not na(ta.pivothigh(rsi, effectivePivotLeft, effectivePivotRight))
+
+currPivotIdx = bar_index[effectivePivotRight]
+
+prevRsiPl = ta.valuewhen(plFound, rsi[effectivePivotRight], 1)
+prevRsiPh = ta.valuewhen(phFound, rsi[effectivePivotRight], 1)
+prevLow   = ta.valuewhen(plFound, low[effectivePivotRight], 1)
+prevHigh  = ta.valuewhen(phFound, high[effectivePivotRight], 1)
+prevPlIdx = ta.valuewhen(plFound, currPivotIdx, 1)
+prevPhIdx = ta.valuewhen(phFound, currPivotIdx, 1)
+
+currRsiPl = rsi[effectivePivotRight]
+currRsiPh = rsi[effectivePivotRight]
+currLow   = low[effectivePivotRight]
+currHigh  = high[effectivePivotRight]
+
+// NA Guards
+hasBullData = plFound and not na(prevLow) and not na(prevRsiPl) and not na(prevPlIdx)
+hasBearData = phFound and not na(prevHigh) and not na(prevRsiPh) and not na(prevPhIdx)
+
+// Stricter Noise Filters
+rsiSwingBull = math.abs(currRsiPl - prevRsiPl)
+rsiSwingBear = math.abs(currRsiPh - prevRsiPh)
+priceSwingBullPc = prevLow != 0 ? math.abs((currLow - prevLow) / prevLow) * 100 : 0.0
+priceSwingBearPc = prevHigh != 0 ? math.abs((currHigh - prevHigh) / prevHigh) * 100 : 0.0
+
+noiseBullOk = not effectiveUseNoiseFilter or (rsiSwingBull >= effectiveMinRsiSwing and priceSwingBullPc >= effectiveMinPriceSwing)
+noiseBearOk = not effectiveUseNoiseFilter or (rsiSwingBear >= effectiveMinRsiSwing and priceSwingBearPc >= effectiveMinPriceSwing)
+
+// Richer Trend Filters
+htfEma      = ta.ema(rsiHTF, effectiveTrendEmaLength)
+htfSlopeUp  = rsiHTF > rsiHTF[effectiveTrendSlopeBars]
+htfSlopeDn  = rsiHTF < rsiHTF[effectiveTrendSlopeBars]
+
+bullTrendOk = effectiveTrendMode == "Off" ? true :
+     effectiveTrendMode == "Midline" ? rsiHTF >= effectiveTrendMidline :
+     effectiveTrendMode == "Slope"   ? htfSlopeUp :
+     rsiHTF >= htfEma
+
+bearTrendOk = effectiveTrendMode == "Off" ? true :
+     effectiveTrendMode == "Midline" ? rsiHTF <= effectiveTrendMidline :
+     effectiveTrendMode == "Slope"   ? htfSlopeDn :
+     rsiHTF <= htfEma
+
+regularBullCond = showRegularDiv and hasBullData and noiseBullOk and bullTrendOk and currLow < prevLow and currRsiPl > prevRsiPl
+regularBearCond = showRegularDiv and hasBearData and noiseBearOk and bearTrendOk and currHigh > prevHigh and currRsiPh < prevRsiPh
+hiddenBullCond  = showHiddenDiv and hasBullData and noiseBullOk and bullTrendOk and currLow > prevLow and currRsiPl < prevRsiPl
+hiddenBearCond  = showHiddenDiv and hasBearData and noiseBearOk and bearTrendOk and currHigh < prevHigh and currRsiPh > prevRsiPh
+
+// Visual Helpers
+var array<line> divLines = array.new_line()
+var array<label> divLabels = array.new_label()
+
+labelSize = labelSizeMode == "Tiny" ? size.tiny :
+     labelSizeMode == "Small" ? size.small :
+     labelSizeMode == "Normal" ? size.normal :
+     size.large
+
+trimDrawings() =>
+    while array.size(divLines) > maxDrawnObjects
+        oldLine = array.shift(divLines)
+        line.delete(oldLine)
+    while array.size(divLabels) > maxDrawnObjects
+        oldLabel = array.shift(divLabels)
+        label.delete(oldLabel)
+
+addDivLine(int x1, float y1, int x2, float y2, color lnColor, lnStyle) =>
+    if showDivLines
+        newLine = line.new(x1, y1, x2, y2, color=lnColor, width=lineWidth, style=lnStyle)
+        array.push(divLines, newLine)
+
+addDivLabel(int x, float y, string txt, color lbColor, lbStyle) =>
+    if showDivLabels
+        newLabel = label.new(x, y, text=txt, style=lbStyle, color=lbColor, textcolor=color.white, size=labelSize)
+        array.push(divLabels, newLabel)
+
+// Plot Divergence
+if regularBullCond
+    addDivLine(int(prevPlIdx), prevRsiPl, currPivotIdx, currRsiPl, color.green, line.style_solid)
+    addDivLabel(currPivotIdx, currRsiPl, "B", color.green, label.style_label_up)
+
+if regularBearCond
+    addDivLine(int(prevPhIdx), prevRsiPh, currPivotIdx, currRsiPh, color.red, line.style_solid)
+    addDivLabel(currPivotIdx, currRsiPh, "S", color.red, label.style_label_down)
+
+if hiddenBullCond
+    addDivLine(int(prevPlIdx), prevRsiPl, currPivotIdx, currRsiPl, color.teal, line.style_dotted)
+    addDivLabel(currPivotIdx, currRsiPl, "HB", color.teal, label.style_label_up)
+
+if hiddenBearCond
+    addDivLine(int(prevPhIdx), prevRsiPh, currPivotIdx, currRsiPh, color.orange, line.style_dotted)
+    addDivLabel(currPivotIdx, currRsiPh, "HS", color.orange, label.style_label_down)
+
+trimDrawings()
+
+// Alert Engine
+barReady = not alertsOnBarCloseOnly or barstate.isconfirmed
+
+regBullBase    = alertMode == "De-dup" ? ta.crossover(regularBullCond ? 1 : 0, 0.5) : regularBullCond
+regBearBase    = alertMode == "De-dup" ? ta.crossover(regularBearCond ? 1 : 0, 0.5) : regularBearCond
+hidBullBase    = alertMode == "De-dup" ? ta.crossover(hiddenBullCond ? 1 : 0, 0.5) : hiddenBullCond
+hidBearBase    = alertMode == "De-dup" ? ta.crossover(hiddenBearCond ? 1 : 0, 0.5) : hiddenBearCond
+
+rsiOverboughtNow = rsi > 70
+rsiOversoldNow   = rsi < 30
+htfOverboughtNow = rsiHTF > 70
+htfOversoldNow   = rsiHTF < 30
+
+rsiObBase = alertMode == "De-dup" ? ta.crossover(rsiOverboughtNow ? 1 : 0, 0.5) : rsiOverboughtNow
+rsiOsBase = alertMode == "De-dup" ? ta.crossover(rsiOversoldNow ? 1 : 0, 0.5) : rsiOversoldNow
+htfObBase = alertMode == "De-dup" ? ta.crossover(htfOverboughtNow ? 1 : 0, 0.5) : htfOverboughtNow
+htfOsBase = alertMode == "De-dup" ? ta.crossover(htfOversoldNow ? 1 : 0, 0.5) : htfOversoldNow
+
+bullAlert       = barReady and alertRegularDiv and regBullBase
+bearAlert       = barReady and alertRegularDiv and regBearBase
+hiddenBullAlert = barReady and alertHiddenDiv and hidBullBase
+hiddenBearAlert = barReady and alertHiddenDiv and hidBearBase
+
+rsiOverboughtAlert = barReady and alertCurrentRsiZones and rsiObBase
+rsiOversoldAlert   = barReady and alertCurrentRsiZones and rsiOsBase
+htfOverboughtAlert = barReady and alertHtfRsiZones and htfObBase
+htfOversoldAlert   = barReady and alertHtfRsiZones and htfOsBase
+
+crossAboveBase = ta.crossover(rsi, 50)
+crossBelowBase = ta.crossunder(rsi, 50)
+
+crossAboveAlert = barReady and alertNeutralCross and crossAboveBase
+crossBelowAlert = barReady and alertNeutralCross and crossBelowBase
+
+// Alerts
+alertcondition(bullAlert, title="Bull Div", message="Bullish Divergence Detected")
+alertcondition(bearAlert, title="Bear Div", message="Bearish Divergence Detected")
+alertcondition(hiddenBullAlert, title="Hidden Bull", message="Hidden Bullish Divergence Detected")
+alertcondition(hiddenBearAlert, title="Hidden Bear", message="Hidden Bearish Divergence Detected")
+
+alertcondition(rsiOverboughtAlert, title="RSI Overbought (Current TF)", message="RSI Overbought on Current TF")
+alertcondition(rsiOversoldAlert, title="RSI Oversold (Current TF)", message="RSI Oversold on Current TF")
+alertcondition(htfOverboughtAlert, title="RSI Overbought (HTF)", message="RSI Overbought on Higher TF")
+alertcondition(htfOversoldAlert, title="RSI Oversold (HTF)", message="RSI Oversold on Higher TF")
+
+alertcondition(crossAboveAlert, title="RSI Cross Above 50", message="RSI Crossed Above Neutral Zone")
+alertcondition(crossBelowAlert, title="RSI Cross Below 50", message="RSI Crossed Below Neutral Zone")
